@@ -95,7 +95,6 @@ export const StockChartLW: React.FC<StockChartProps> = ({ data, updateMode, peri
   const subSeriesRefs = useRef<ISeriesApi<SeriesType, Time>[]>([]);
   const seriesTypeRef = useRef<'line' | 'candle' | null>(null);
   const hasFittedRef = useRef(false);
-  const isIntradayRef = useRef(false);
 
   const [volumeHeight, setVolumeHeight] = useState(VOLUME_DEFAULT);
 
@@ -181,6 +180,7 @@ export const StockChartLW: React.FC<StockChartProps> = ({ data, updateMode, peri
       volumeSeriesRef.current = null;
     }
     seriesTypeRef.current = null;
+    hasFittedRef.current = false;
   }, []);
 
   // ========== 唯一的图表创建：组件挂载时创建，卸载时销毁 ==========
@@ -316,6 +316,11 @@ export const StockChartLW: React.FC<StockChartProps> = ({ data, updateMode, peri
       handleScale: !isIntraday,
     });
   }, [isIntraday]);
+
+  // 切换周期时重置 fit 状态，避免沿用旧 X 轴可视范围
+  useEffect(() => {
+    hasFittedRef.current = false;
+  }, [period]);
 
   // 分时模式固定显示成交量副图，避免隐藏 tab 后无法恢复
   useEffect(() => {
@@ -652,8 +657,8 @@ export const StockChartLW: React.FC<StockChartProps> = ({ data, updateMode, peri
       )}
 
       {/* Header */}
-      <div className={`flex items-center justify-between px-2 py-1 border-b fin-divider fin-panel-strong z-10 ${!hasData ? 'invisible' : ''}`}>
-        <div className="flex gap-1">
+      <div className={`flex items-center px-2 py-1 border-b fin-divider fin-panel-strong z-10 ${!hasData ? 'invisible' : ''}`}>
+        <div className="flex gap-1 shrink-0">
           {periods.map((p) => (
             <button
               key={p.id}
@@ -682,32 +687,30 @@ export const StockChartLW: React.FC<StockChartProps> = ({ data, updateMode, peri
           )}
         </div>
 
-        {/* 数据信息栏 */}
-        <div className={`text-xs font-mono flex gap-3 ${colors.isDark ? 'text-slate-400' : 'text-slate-500'}`}>
+        {/* 数据信息栏：固定在右侧可用区域，避免切换周期时撑宽/抖动 */}
+        <div className={`ml-3 min-w-0 flex-1 text-xs font-mono tabular-nums ${colors.isDark ? 'text-slate-400' : 'text-slate-500'}`}>
+          <div className="flex items-center justify-end gap-2 overflow-x-auto whitespace-nowrap [scrollbar-width:none] [-ms-overflow-style:none] [&::-webkit-scrollbar]:hidden">
           {isIntraday ? (
             <>
-              <span>时间: <span className={colors.isDark ? 'text-slate-300' : 'text-slate-600'}>{displayData ? formatTimeDisplay(displayData.time) : '--'}</span></span>
-              <span>价格: <span className={getPriceColor(displayData?.close || 0)}>{displayData?.close?.toFixed(2) || '--'}</span></span>
-              <span>均价: <span className="text-yellow-500">{displayData?.avg?.toFixed(2) || '--'}</span></span>
-              <span>涨跌: <span className={getPriceColor(currentPrice)}>{formatChange(displayData?.close || preClose)}</span></span>
-              <span>幅度: <span className={getPriceColor(currentPrice)}>{formatChangePercent(displayData?.close || preClose)}</span></span>
+              <span className="shrink-0 w-44 text-right">时间: <span className={colors.isDark ? 'text-slate-300' : 'text-slate-600'}>{displayData ? formatTimeDisplay(displayData.time) : '--'}</span></span>
+              <span className="shrink-0 w-24 text-right">价格: <span className={getPriceColor(displayData?.close || 0)}>{displayData?.close?.toFixed(2) || '--'}</span></span>
+              <span className="shrink-0 w-24 text-right">均价: <span className="text-yellow-500">{displayData?.avg?.toFixed(2) || '--'}</span></span>
+              <span className="shrink-0 w-24 text-right">涨跌: <span className={getPriceColor(currentPrice)}>{formatChange(displayData?.close || preClose)}</span></span>
+              <span className="shrink-0 w-24 text-right">幅度: <span className={getPriceColor(currentPrice)}>{formatChangePercent(displayData?.close || preClose)}</span></span>
             </>
           ) : (
             <>
-              <span>时间: <span className={colors.isDark ? 'text-slate-300' : 'text-slate-600'}>{displayData ? formatTimeDisplay(displayData.time) : '--'}</span></span>
-              <span>收: <span className="text-accent-2">{displayData?.close?.toFixed(2)}</span></span>
-              <span>开: {displayData?.open?.toFixed(2)}</span>
-              <span>高: <span className={cc.upClass}>{displayData?.high?.toFixed(2)}</span></span>
-              <span>低: <span className={cc.downClass}>{displayData?.low?.toFixed(2)}</span></span>
-              {displayData?.ma5 && (
-                <>
-                  <span>MA5: <span className="text-yellow-500">{displayData?.ma5?.toFixed(2)}</span></span>
-                  <span>MA10: <span className="text-purple-500">{displayData?.ma10?.toFixed(2)}</span></span>
-                  <span>MA20: <span className="text-orange-500">{displayData?.ma20?.toFixed(2)}</span></span>
-                </>
-              )}
+              <span className="shrink-0 w-44 text-right">时间: <span className={colors.isDark ? 'text-slate-300' : 'text-slate-600'}>{displayData ? formatTimeDisplay(displayData.time) : '--'}</span></span>
+              <span className="shrink-0 w-20 text-right">收: <span className="text-accent-2">{displayData?.close?.toFixed(2) || '--'}</span></span>
+              <span className="shrink-0 w-20 text-right">开: {displayData?.open?.toFixed(2) || '--'}</span>
+              <span className="shrink-0 w-20 text-right">高: <span className={cc.upClass}>{displayData?.high?.toFixed(2) || '--'}</span></span>
+              <span className="shrink-0 w-20 text-right">低: <span className={cc.downClass}>{displayData?.low?.toFixed(2) || '--'}</span></span>
+              <span className="shrink-0 w-24 text-right">MA5: <span className="text-yellow-500">{displayData?.ma5?.toFixed(2) || '--'}</span></span>
+              <span className="shrink-0 w-24 text-right">MA10: <span className="text-purple-500">{displayData?.ma10?.toFixed(2) || '--'}</span></span>
+              <span className="shrink-0 w-24 text-right">MA20: <span className="text-orange-500">{displayData?.ma20?.toFixed(2) || '--'}</span></span>
             </>
           )}
+          </div>
         </div>
       </div>
 
