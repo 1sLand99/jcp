@@ -4,10 +4,8 @@ import (
 	"encoding/json"
 	"os"
 	"path/filepath"
-	"strings"
 	"sync"
 
-	"github.com/run-bigpig/jcp/internal/embed"
 	"github.com/run-bigpig/jcp/internal/models"
 )
 
@@ -62,7 +60,11 @@ func (cs *ConfigService) loadConfig() error {
 
 	// 用于识别字段是否在 JSON 中显式存在（避免把用户明确设置的 false 当成缺失字段）
 	var raw struct {
-		Indicators struct {
+		AIRetryCount        *int    `json:"aiRetryCount"`
+		VerboseAgentIO      *bool   `json:"verboseAgentIO"`
+		AgentSelectionStyle *string `json:"agentSelectionStyle"`
+		EnableSecondReview  *bool   `json:"enableSecondReview"`
+		Indicators          struct {
 			MA struct {
 				Enabled *bool `json:"enabled"`
 			} `json:"ma"`
@@ -89,7 +91,21 @@ func (cs *ConfigService) loadConfig() error {
 
 	// 旧配置文件可能缺少 indicators 字段，Go 零值（nil/0/0.0）会导致前端异常
 	// 用默认值补全所有未设置的字段
-	d := cs.defaultConfig().Indicators
+	defaultConfig := cs.defaultConfig()
+	if raw.AIRetryCount == nil || config.AIRetryCount <= 0 {
+		config.AIRetryCount = defaultConfig.AIRetryCount
+	}
+	if raw.VerboseAgentIO == nil {
+		config.VerboseAgentIO = defaultConfig.VerboseAgentIO
+	}
+	if raw.AgentSelectionStyle == nil || config.AgentSelectionStyle == "" {
+		config.AgentSelectionStyle = defaultConfig.AgentSelectionStyle
+	}
+	if raw.EnableSecondReview == nil {
+		config.EnableSecondReview = defaultConfig.EnableSecondReview
+	}
+
+	d := defaultConfig.Indicators
 	ind := &config.Indicators
 	if raw.Indicators.MA.Enabled == nil {
 		ind.MA.Enabled = d.MA.Enabled
@@ -149,10 +165,14 @@ func (cs *ConfigService) loadConfig() error {
 // defaultConfig 默认配置
 func (cs *ConfigService) defaultConfig() *models.AppConfig {
 	return &models.AppConfig{
-		Theme:           "military",
-		CandleColorMode: "red-up",
-		AIConfigs:       []models.AIConfig{},
-		DefaultAIID:     "",
+		Theme:               "military",
+		CandleColorMode:     "red-up",
+		AIConfigs:           []models.AIConfig{},
+		DefaultAIID:         "",
+		AIRetryCount:        2,
+		VerboseAgentIO:      false,
+		AgentSelectionStyle: models.AgentSelectionBalanced,
+		EnableSecondReview:  false,
 		Memory: models.MemoryConfig{
 			Enabled:           true,
 			MaxRecentRounds:   3,
@@ -263,96 +283,7 @@ func (cs *ConfigService) RemoveFromWatchlist(symbol string) error {
 	return nil
 }
 
-// stockBasicData stock_basic.json 的数据结构
-type stockBasicData struct {
-	Data struct {
-		Fields []string        `json:"fields"`
-		Items  [][]interface{} `json:"items"`
-	} `json:"data"`
-}
-
-// StockSearchResult 股票搜索结果
-type StockSearchResult struct {
-	Symbol   string `json:"symbol"`
-	Name     string `json:"name"`
-	Industry string `json:"industry"`
-	Market   string `json:"market"`
-}
-
 // SearchStocks 搜索股票
 func (cs *ConfigService) SearchStocks(keyword string, limit int) []StockSearchResult {
-	if keyword == "" {
-		return []StockSearchResult{}
-	}
-
-	keyword = strings.ToUpper(keyword)
-
-	// 使用嵌入的股票数据
-	var basicData stockBasicData
-	if err := json.Unmarshal(embed.StockBasicJSON, &basicData); err != nil {
-		return []StockSearchResult{}
-	}
-
-	// 找到字段索引
-	var symbolIdx, nameIdx, industryIdx, tsCodeIdx int = -1, -1, -1, -1
-	for i, field := range basicData.Data.Fields {
-		switch field {
-		case "symbol":
-			symbolIdx = i
-		case "name":
-			nameIdx = i
-		case "industry":
-			industryIdx = i
-		case "ts_code":
-			tsCodeIdx = i
-		}
-	}
-
-	if symbolIdx < 0 || nameIdx < 0 {
-		return []StockSearchResult{}
-	}
-
-	var results []StockSearchResult
-	for _, item := range basicData.Data.Items {
-		if len(results) >= limit {
-			break
-		}
-
-		symbol, _ := item[symbolIdx].(string)
-		name, _ := item[nameIdx].(string)
-
-		// 匹配代码或名称
-		upperSymbol := strings.ToUpper(symbol)
-		upperName := strings.ToUpper(name)
-
-		if strings.Contains(upperSymbol, keyword) || strings.Contains(upperName, keyword) {
-			var industry, market, fullSymbol string
-			if industryIdx >= 0 && industryIdx < len(item) {
-				industry, _ = item[industryIdx].(string)
-			}
-			// 从 ts_code 获取市场前缀
-			if tsCodeIdx >= 0 && tsCodeIdx < len(item) {
-				tsCode, _ := item[tsCodeIdx].(string)
-				if strings.HasSuffix(tsCode, ".SH") {
-					market = "上海"
-					fullSymbol = "sh" + symbol
-				} else if strings.HasSuffix(tsCode, ".SZ") {
-					market = "深圳"
-					fullSymbol = "sz" + symbol
-				}
-			}
-			if fullSymbol == "" {
-				fullSymbol = symbol
-			}
-
-			results = append(results, StockSearchResult{
-				Symbol:   fullSymbol,
-				Name:     name,
-				Industry: industry,
-				Market:   market,
-			})
-		}
-	}
-
-	return results
+	return searchEmbeddedStocks(keyword, limit)
 }
